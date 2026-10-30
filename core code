@@ -1,0 +1,143 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
+contract AgentMiner is ERC721, Ownable, ReentrancyGuard {
+
+    uint256 public nextTokenId = 1;
+
+    uint256 public mintPrice = 0.001 ether;
+    uint256 public miningReward = 10;
+    uint256 public missionCooldown = 24 hours;
+
+    address public aiAgent;
+
+    mapping(uint256 => uint256) public miningPoints;
+    mapping(uint256 => uint256) public lastMineTime;
+    mapping(uint256 => uint256) public lastMissionTime;
+
+    event NFTMinted(address indexed user, uint256 indexed tokenId);
+
+    event MiningCompleted(
+        address indexed user,
+        uint256 indexed tokenId,
+        uint256 reward
+    );
+
+    event AIMissionCompleted(
+        address indexed user,
+        uint256 indexed tokenId,
+        uint256 reward
+    );
+
+    event AIAgentUpdated(address indexed newAgent);
+
+    constructor()
+        ERC721("Agent Miner NFT", "AMINER")
+        Ownable(msg.sender)
+    {}
+
+    // Mint NFT character
+    function mintNFT() external payable nonReentrant {
+        require(msg.value >= mintPrice, "Insufficient BNB");
+
+        uint256 tokenId = nextTokenId++;
+
+        _safeMint(msg.sender, tokenId);
+
+        emit NFTMinted(msg.sender, tokenId);
+    }
+
+    // Set AI agent address
+    function setAIAgent(address _agent) external onlyOwner {
+        require(_agent != address(0), "Invalid AI agent");
+
+        aiAgent = _agent;
+
+        emit AIAgentUpdated(_agent);
+    }
+
+    // Play-to-Mine
+    function mine(uint256 tokenId) external {
+        require(ownerOf(tokenId) == msg.sender, "Not NFT owner");
+
+        require(
+            block.timestamp >= lastMineTime[tokenId] + missionCooldown,
+            "Mining cooldown active"
+        );
+
+        lastMineTime[tokenId] = block.timestamp;
+
+        miningPoints[tokenId] += miningReward;
+
+        emit MiningCompleted(
+            msg.sender,
+            tokenId,
+            miningReward
+        );
+    }
+
+    // AI agent rewards players for completing missions
+    function completeAIMission(
+        uint256 tokenId,
+        uint256 reward
+    ) external {
+        require(msg.sender == aiAgent, "Only AI agent");
+
+        require(ownerOf(tokenId) != address(0), "NFT does not exist");
+
+        require(reward > 0 && reward <= 50, "Invalid reward");
+
+        require(
+            block.timestamp >= lastMissionTime[tokenId] + missionCooldown,
+            "Mission cooldown active"
+        );
+
+        lastMissionTime[tokenId] = block.timestamp;
+
+        miningPoints[tokenId] += reward;
+
+        emit AIMissionCompleted(
+            ownerOf(tokenId),
+            tokenId,
+            reward
+        );
+    }
+
+    // Check NFT mining points
+    function getMiningPoints(
+        uint256 tokenId
+    ) external view returns (uint256) {
+        ownerOf(tokenId);
+
+        return miningPoints[tokenId];
+    }
+
+    // Change mining reward
+    function setMiningReward(
+        uint256 _reward
+    ) external onlyOwner {
+        require(_reward > 0, "Invalid reward");
+
+        miningReward = _reward;
+    }
+
+    // Change mint price
+    function setMintPrice(
+        uint256 _price
+    ) external onlyOwner {
+        mintPrice = _price;
+    }
+
+    // Withdraw mint payments
+    function withdrawBNB() external onlyOwner nonReentrant {
+        (bool success, ) = payable(owner()).call{
+            value: address(this).balance
+        }("");
+
+        require(success, "BNB withdrawal failed");
+    }
+}
